@@ -43,3 +43,7 @@ impacket-secretsdump cyber.local/Administrateur@192.168.15.10 -hashes 'aad3b435b
 
 ---
 *Disclaimer: This project was created for educational purposes and authorized academic presentation. All attacks were executed in a strictly isolated, local environment.*
+
+---
+### 🗺️ Network Architecture
+![CyberLab 2026 Architecture](Architecture%20Minilab_en.png)
