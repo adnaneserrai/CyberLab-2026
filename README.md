@@ -1,49 +1,83 @@
+# CyberLab 2026: Zero to Dominance
 
-#  CyberLab 2026: Zero to Dominance
+A custom, minimalist Active Directory penetration testing lab, built from scratch and fully compromised through a complete attack chain — from an unauthenticated physical bypass to full Domain Dominance (DCSync).
 
-**A custom, minimalist Active Directory Penetration Testing Laboratory.**
+Designed as a lightweight alternative to [GOAD](https://github.com/Orange-Cyberdefense/GOAD) for hardware-constrained environments (16 GB RAM), while still reproducing the core, real-world Active Directory misconfigurations attackers exploit in the wild.
 
-This project consists of building a fully functional, vulnerable-by-design Active Directory environment from scratch, and executing a complete attack chain from an unauthenticated physical bypass to full Domain Dominance (DCSync). Built as a lightweight alternative to GOAD for hardware-constrained environments.
+> **Disclaimer:** Built for educational purposes and an authorized academic presentation. Every attack below was executed in a strictly isolated, local-only network with no internet access.
 
-##  Architecture (The Minilab)
-Due to a 16GB RAM hardware constraint, the architecture was optimized for maximum efficiency while retaining core AD vulnerabilities:
-* **DC01 (Windows Server 2022):** The Domain Controller (`cyber.local` - `192.168.15.10`)
-* **WIN10-CLIENT (Windows 10):** The target workstation (`192.168.15.20`)
-* **Attacker (Kali Linux):** `192.168.15.30`
-* **Network:** Completely isolated Host-Only network (VMware VMnet2) with static IP routing.
+## Contents
 
-##  Deployment & Vulnerability Injection
-The domain configuration and user provisioning are automated via a custom PowerShell script (`Deploy-CyberLab.ps1`). 
-The script injects a specific misconfiguration: **Kerberos Pre-Authentication is disabled** for the service account `svc_sql`.
+- [Architecture](#architecture)
+- [Deployment](#deployment)
+- [Attack path](#attack-path)
+- [Skills demonstrated](#skills-demonstrated)
 
-##  The Attack Path (Kill-Chain)
+## Architecture
 
-### 1. Initial Access: Physical Bypass (Utilman Hijack)
-Simulating physical access to the locked Windows 10 client, we bypass the login screen by replacing the Accessibility tool (`utilman.exe`) with the command prompt (`cmd.exe`) via a mounted Windows ISO.
-* **Result:** Local `NT AUTHORITY\SYSTEM` shell.
+Due to the 16 GB RAM constraint, the lab topology was reduced to the minimum number of machines needed to keep the core AD attack surface intact:
 
-### 2. Privilege Escalation: AS-REP Roasting
-Pivoting to the network, we target the misconfigured `svc_sql` account to request a Kerberos ticket without a password, and crack the returned hash offline.
+| Host | Role | OS | IP |
+|---|---|---|---|
+| `DC01` | Domain Controller (`cyber.local`) | Windows Server 2022 | `192.168.15.10` |
+| `WIN10-CLIENT` | Target workstation | Windows 10 | `192.168.15.20` |
+| `Attacker` | Offensive box | Kali Linux | `192.168.15.30` |
+
+All three machines run on a completely isolated, Host-Only VMware network (`VMnet2`) with static IP routing — no bridge to the internet or the host's LAN.
+
+## Deployment
+
+Domain configuration and user provisioning are fully automated by [`Deploy-CyberLab.ps1`](Deploy-CyberLab.ps1), a PowerShell Infrastructure-as-Code script that:
+
+1. Creates the standard pivot user (`jdupont`).
+2. Creates the target service account (`svc_sql`).
+3. Injects the intended misconfiguration: **Kerberos Pre-Authentication disabled** on `svc_sql`, opening the door to AS-REP Roasting.
+
+## Attack path
+
+### 1. Initial access — physical bypass (Utilman hijack)
+
+Simulating physical access to the locked Windows 10 client: the Accessibility tool (`utilman.exe`) is replaced with `cmd.exe` via a mounted Windows installation ISO, giving an unauthenticated `NT AUTHORITY\SYSTEM` shell at the login screen.
+
+**Result:** local `SYSTEM` shell, no credentials required.
+
+### 2. Privilege escalation — AS-REP Roasting
+
+Pivoting onto the network, the misconfigured `svc_sql` account is targeted to request a Kerberos ticket with no password, then the ticket is cracked offline.
+
 ```bash
 impacket-GetNPUsers cyber.local/jdupont:'CyberLab2026!' -dc-ip 192.168.15.10 -request -format john -outputfile hash.txt
 ```
 
-### 3. Credential Harvesting: LSASS Memory Dump
-With elevated local privileges, we dump the `lsass.exe` process from the Windows 10 memory to extract the active session tokens of the Domain Administrator.
+### 3. Credential harvesting — LSASS memory dump
+
+With local admin privileges on the workstation, the `lsass.exe` process is dumped to extract the Domain Administrator's active session tokens.
+
 ```bash
 nxc smb 192.168.15.20 -u Administrateur -p 'Oui1234!' -M lsassy
 ```
 
-### 4. Domain Dominance: DCSync
-Using the extracted NTLM hash of the Domain Administrator, we execute a Pass-The-Hash attack to simulate a rogue Domain Controller and request the full replication of the Active Directory database (NTDS.dit).
+### 4. Domain dominance — DCSync
+
+Using the recovered Domain Administrator NTLM hash, a Pass-the-Hash attack impersonates a rogue Domain Controller and requests full replication of the Active Directory database (`NTDS.dit`).
+
 ```bash
 impacket-secretsdump cyber.local/Administrateur@192.168.15.10 -hashes 'aad3b435b51404eeaad3b435b51404ee:2a13076f6a2fcf8b68e60ff1f3fca101'
 ```
-* **Result:** Total compromise of the `cyber.local` forest (KRBTGT hash compromised).
 
----
-*Disclaimer: This project was created for educational purposes and authorized academic presentation. All attacks were executed in a strictly isolated, local environment.*
+**Result:** total compromise of the `cyber.local` forest, including the `KRBTGT` hash.
 
----
-###  Network Architecture
+### Network architecture
+
 ![CyberLab 2026 Architecture](Architecture%20Minilab_en.png)
+
+## Skills demonstrated
+
+- Active Directory deployment and IaC-style provisioning (PowerShell, `ActiveDirectory` module)
+- Deliberate, documented misconfiguration of a real AD environment for training purposes
+- End-to-end offensive kill chain: physical bypass → Kerberos abuse → credential dumping → domain takeover
+- Tooling: Impacket, NetExec (`nxc`)/`lsassy`, John the Ripper, Mimikatz-style Pass-the-Hash
+
+## Further reading
+
+A full write-up of the build and the attack is kept in the slideshow: [`Cyberlab_slideshow.pdf`](Cyberlab_slideshow.pdf).
